@@ -1,0 +1,18 @@
+[tools]
+godot = "4.7.2-stable"
+
+[tasks.run]
+description = "Play PJ-Racing"
+run = "./build.sh run"
+
+[tasks.editor]
+description = "Open the Godot editor"
+run = "./build.sh editor"
+
+[tasks.check]
+description = "Import + headless smoke test"
+run = "./build.sh check"
+
+[tasks.export]
+description = "Export a standalone Linux build into build/"
+run = "./build.sh export"
