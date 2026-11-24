@@ -49,6 +49,20 @@ func _ready() -> void:
 		var i := args.find("--screen")
 		Game.humans = [{"slot": 0, "device": "any", "build_index": 0, "name": "Player 1"}]
 		var params := {}
+		if "--demo-build" in args:
+			# dev: load a showcase build into car 1 (test save only)
+			var parts_csv: String = args[args.find("--demo-build") + 1]
+			var b := Save.get_build(0)
+			var ex := []
+			for id in parts_csv.split(","):
+				var p := Parts.get_part(id)
+				if p.is_empty():
+					continue
+				if p["cat"] == Parts.EXTRAS:
+					ex.append(id)
+				else:
+					b[p["cat"]] = id
+			b[Parts.EXTRAS] = ex
 		if "--tab" in args:
 			params["tab"] = args[args.find("--tab") + 1]
 		Game.goto(args[i + 1], params)

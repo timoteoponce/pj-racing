@@ -82,7 +82,12 @@ func build() -> void:
 
 	var rewards := PanelContainer.new()
 	rewards.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rewards.visible = not Parts.FREE_MODE
 	right.add_child(rewards)
+	if Parts.FREE_MODE:
+		var spacer := Control.new()
+		spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		right.add_child(spacer)
 	var rv := VBoxContainer.new()
 	rv.add_theme_constant_override("separation", 4)
 	rewards.add_child(rv)

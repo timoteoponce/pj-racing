@@ -27,7 +27,7 @@ func build() -> void:
 	logo.text = "PJ-RACING"
 	UI.pin(logo, 0.5, 0, -330, 22, 660, 130)
 	add_child(logo)
-	var sub := UI.label("BUILD IT  •  RACE IT  •  WIN NEW PARTS!", 22, Color.WHITE, 7)
+	var sub := UI.label("BUILD IT  •  RACE IT  •  WIN IT!" if Parts.FREE_MODE else "BUILD IT  •  RACE IT  •  WIN NEW PARTS!", 22, Color.WHITE, 7)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	UI.pin(sub, 0.5, 0, -400, 158, 800, 34)
 	add_child(sub)
@@ -50,7 +50,7 @@ func build() -> void:
 	focus_first(race)
 
 	# "new parts" badge next to the garage button
-	var n_new: int = Save.data["new_parts"].size()
+	var n_new: int = 0 if Parts.FREE_MODE else Save.data["new_parts"].size()
 	if n_new > 0:
 		var badge := Badge.new()
 		badge.text = "%d NEW PART%s!" % [n_new, "S" if n_new > 1 else ""]
@@ -58,6 +58,8 @@ func build() -> void:
 		badge.size = Vector2(170, 40)
 		garage.add_child(badge)
 
+	if Parts.FREE_MODE:
+		return
 	var studs := StudCounter.new()
 	UI.pin(studs, 1, 0, -250, 20, 230, 50)
 	add_child(studs)

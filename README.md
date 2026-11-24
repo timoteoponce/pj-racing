@@ -32,13 +32,15 @@ repo has no asset files.
 The main menu has just three big buttons:
 
 - **RACE!**: pick one of your 4 cars, pick a track, go.
-- **BUILD YOUR CAR**: the garage, which is the heart of the game. Choose a tab (Car Type, Body,
-  Engine, Wheels, Wing, Paint, Driver, Power-Ups) and click part tiles to snap them onto your car,
-  with a brick-burst. Paint tiles show the real colors. Stats are shown as lego studs (Speed,
-  Quick Start, Turning, Strength, Off-road); highlighting a part previews it on the car, with
-  green/red studs for what changes. **Surprise Me!** makes a random combo and **New Name** gives
-  the car a silly name ("Turbo Taco", "Pickle Rocket"…). Locked parts can be previewed and bought
-  with studs (press twice, so nobody spends by accident).
+- **BUILD YOUR CAR**: the garage, which is the heart of the game. Every car starts as a **base car**:
+  a go-kart frame, classic wheels, a tiny motor and a driver. From there you add things: choose a
+  tab (Car Type, Body, Engine, Wheels, Wing, Paint, Driver, Extras) and click part tiles to snap them
+  on with a brick-burst. **Extras** stack (up to 8): big headlights, bull bar, side pipes, mud flaps,
+  racing flag, bouncy antenna, siren, roof light bar, bull horns, shark fin, rocket boosters and a
+  race number. Open cars automatically get a roll bar to hold roof extras. Stats are shown as lego
+  studs and highlighting a part previews it, with green/red studs for what changes.
+  **Surprise Me!** makes a random combo, **Start Over** goes back to the base car, and **New Name**
+  gives the car a silly name ("Turbo Taco", "Pickle Rocket"…).
 - **RACE WITH FRIENDS**: 2–4 players split-screen, cups of 3 or 6 races with points and a podium.
 
 **Easy Driving** is on by default: the gas is automatic, the kart gently steers back toward the
@@ -46,9 +48,10 @@ road, wall hits are softer, and a stuck kart is put back on the track after 2 se
 need to steer, drift and use items. Turn it off in **Settings** for a real challenge. Settings also
 holds race length, number of computer racers and computer skill (Easy by default).
 
-**Winning stuff**: every race pays studs. Winning unlocks a random new lego part, and finishing
-on the podium has a 50% chance of one. New parts are shown big on the results screen with a
-**Try it in the Garage!** button, and get a NEW! sticker in the garage until you look at them.
+**Everything is open**: for now every part is available from the start, with no prices, locks or
+studs shop (`FREE_MODE` in `src/autoload/parts.gd`). Setting it to `false` brings back the
+progression that is already built: studs for every race, races unlocking new parts with NEW! stickers,
+buying parts and Power-Up upgrades.
 
 ## Tracks
 

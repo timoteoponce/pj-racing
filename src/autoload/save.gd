@@ -4,6 +4,8 @@ extends Node
 const PATH := "user://pj_racing_save.json"
 const TEST_PATH := "user://pj_racing_test_save.json"
 const BUILD_SLOTS := 4
+## Bump to migrate old saves. v2: garage cars restart from the new base car.
+const VERSION := 2
 
 var data := {}
 var path := PATH
@@ -23,6 +25,7 @@ func defaults() -> Dictionary:
 	for i in BUILD_SLOTS:
 		builds.append(Parts.default_build(i))
 	return {
+		"version": VERSION,
 		"studs": 300,
 		"unlocked": Parts.starters(),
 		"builds": builds,
@@ -46,6 +49,9 @@ func load_game() -> void:
 					data[k].merge(parsed[k], true)
 				else:
 					data[k] = parsed[k]
+	if int(data.get("version", 1)) < 2:
+		data["builds"] = defaults()["builds"]
+		data["version"] = VERSION
 	# sanitize builds against the catalog (parts may have been renamed)
 	var builds: Array = data["builds"]
 	while builds.size() < BUILD_SLOTS:
@@ -58,6 +64,8 @@ func load_game() -> void:
 				b[c] = d[c]
 		if not b.has("name"):
 			b["name"] = d["name"]
+		var ex: Array = Parts.extras_of(b).filter(func(id): return Parts.parts.has(id) and is_unlocked(id))
+		b[Parts.EXTRAS] = ex.slice(0, Parts.MAX_EXTRAS)
 	for id in Parts.starters():
 		if not is_unlocked(id):
 			data["unlocked"].append(id)
@@ -91,17 +99,17 @@ func apply_settings() -> void:
 
 
 func is_unlocked(id: String) -> bool:
-	return data["unlocked"].has(id)
+	return Parts.FREE_MODE or data["unlocked"].has(id)
 
 
 func unlock(id: String) -> void:
-	if not is_unlocked(id):
+	if not data["unlocked"].has(id):
 		data["unlocked"].append(id)
 		data["new_parts"].append(id)
 
 
 func is_new(id: String) -> bool:
-	return data["new_parts"].has(id)
+	return not Parts.FREE_MODE and data["new_parts"].has(id)
 
 
 func mark_seen(id: String) -> void:
@@ -111,7 +119,7 @@ func mark_seen(id: String) -> void:
 func locked_parts() -> Array:
 	var out := []
 	for id in Parts.parts:
-		if not is_unlocked(id):
+		if not data["unlocked"].has(id):
 			out.append(id)
 	return out
 

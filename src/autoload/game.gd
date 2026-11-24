@@ -134,6 +134,13 @@ func complete_race(results: Array) -> void:
 	last_rewards = []
 	if demo:
 		return
+	if Parts.FREE_MODE:
+		for r in results:
+			if mode == "tournament":
+				r["points"] = POINTS[r["place"] - 1] if r["place"] - 1 < POINTS.size() else 0
+				standings[r["id"]] = standings.get(r["id"], 0) + r["points"]
+		Save.save_game()
+		return
 	var mult: float = [0.7, 1.0, 1.5][difficulty]
 	for r in results:
 		if mode == "tournament":
@@ -170,6 +177,11 @@ func is_tournament_over() -> bool:
 ## Called after the final tournament race: bonus rewards for the champions.
 func complete_tournament() -> Array:
 	var table := tournament_table()
+	if Parts.FREE_MODE:
+		if not table.is_empty() and table[0]["human"]:
+			Save.data["trophies"][cup_id] = 1
+		Save.save_game()
+		return []
 	var extra := []
 	for i in table.size():
 		var r: Dictionary = table[i]

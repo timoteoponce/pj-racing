@@ -3,10 +3,9 @@ extends Screen
 ## Locked parts can be previewed and bought with studs. Parts won in races show a NEW! sticker.
 
 const UPGRADE_COST := 250
-const TABS := ["chassis", "body", "engine", "wheels", "spoiler", "paint", "driver", "upgrades"]
 const TAB_NAMES := {
 	"chassis": "Car Type", "body": "Body", "engine": "Engine", "wheels": "Wheels",
-	"spoiler": "Wing", "paint": "Paint", "driver": "Driver", "upgrades": "Power-Ups",
+	"spoiler": "Wing", "paint": "Paint", "driver": "Driver", "extras": "Extras", "upgrades": "Power-Ups",
 }
 
 var slot := 0
@@ -21,6 +20,15 @@ var _info: Label
 var _slot_btns: Array[Button] = []
 var _armed := ""
 var _start_tab := "chassis"
+var _reset_armed := false
+var _reset_btn: Button
+
+
+static func tabs() -> Array:
+	var t := ["chassis", "body", "engine", "wheels", "spoiler", "paint", "driver", "extras"]
+	if not Parts.FREE_MODE:
+		t.append("upgrades")
+	return t
 
 
 func setup(p: Dictionary) -> void:
@@ -50,9 +58,10 @@ func build() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	UI.pin(title, 0, 0, 24, 10, 600, 60)
 	left.add_child(title)
-	var studs := StudCounter.new()
-	UI.pin(studs, 0, 0, 26, 76, 230, 50)
-	left.add_child(studs)
+	if not Parts.FREE_MODE:
+		var studs := StudCounter.new()
+		UI.pin(studs, 0, 0, 26, 76, 230, 50)
+		left.add_child(studs)
 	var card := PanelContainer.new()
 	UI.pin(card, 0, 1, 20, -262, 430, 244)
 	left.add_child(card)
@@ -90,7 +99,7 @@ func build() -> void:
 	tabs.add_theme_constant_override("h_separation", 8)
 	tabs.add_theme_constant_override("v_separation", 8)
 	v.add_child(tabs)
-	for t in TABS:
+	for t in tabs():
 		var b := UI.big_button(TAB_NAMES[t], func(): _select_tab(t, true), Color("#3a4a5a"), 128, 50, 19)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tabs.add_child(b)
@@ -115,10 +124,13 @@ func build() -> void:
 	var bottom := HBoxContainer.new()
 	bottom.add_theme_constant_override("separation", 10)
 	v.add_child(bottom)
-	var surprise := UI.big_button("Surprise Me!", _surprise, Color("#9b4dff"), 230, 60, 24)
+	var surprise := UI.big_button("Surprise Me!", _surprise, Color("#9b4dff"), 180, 60, 22)
 	surprise.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bottom.add_child(surprise)
-	var done := UI.big_button("Done", on_back, UI.YELLOW, 160, 60, 24)
+	_reset_btn = UI.big_button("Start Over", _start_over, Color("#d85a2a"), 150, 60, 22)
+	_reset_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom.add_child(_reset_btn)
+	var done := UI.big_button("Done", on_back, UI.YELLOW, 120, 60, 22)
 	done.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bottom.add_child(done)
 
@@ -184,7 +196,10 @@ func _fill_grid() -> void:
 		tile.garage = self
 		tile.part_id = id
 		_grid.add_child(tile)
-	_info.text = "Pick a part to snap it onto your car!"
+	if cat == Parts.EXTRAS:
+		_info.text = "Add as many extras as you like! Press again to take one off."
+	else:
+		_info.text = "Pick a part to snap it onto your car!"
 
 
 func _refresh_car() -> void:
@@ -204,7 +219,20 @@ func preview(tile: PartTile) -> void:
 		return
 	var id := tile.part_id
 	var p := Parts.get_part(id)
-	var b := _saved().duplicate()
+	var b := _saved().duplicate(true)
+	if cat == Parts.EXTRAS:
+		var ex: Array = Parts.extras_of(b)
+		var on := id in ex
+		if on:
+			ex.erase(id)
+		else:
+			ex.append(id)
+		b[Parts.EXTRAS] = ex
+		# preview: show the car WITH the extra so you can see it
+		_show.set_build(b if not on else _saved())
+		_stats.show_build(b, _saved())
+		_info.text = "%s  -  %s" % [p["name"], "on your car! Press to take it off." if on else "press to add it!"]
+		return
 	b[cat] = id
 	_show.set_build(b)
 	_stats.show_build(b, _saved())
@@ -227,6 +255,10 @@ func activate(tile: PartTile) -> void:
 		return
 	var id := tile.part_id
 	var p := Parts.get_part(id)
+	if cat == Parts.EXTRAS:
+		_toggle_extra(id)
+		tile.garage.preview(tile)
+		return
 	if Save.is_unlocked(id):
 		var b := _saved()
 		if b[cat] == id:
@@ -256,6 +288,48 @@ func activate(tile: PartTile) -> void:
 		Sfx.play("reward")
 		_snap(b)
 		_info.text = "You bought %s! It's on your car." % p["name"]
+
+
+func _toggle_extra(id: String) -> void:
+	var b := _saved()
+	var ex: Array = Parts.extras_of(b).duplicate()
+	var p := Parts.get_part(id)
+	if id in ex:
+		ex.erase(id)
+		b[Parts.EXTRAS] = ex
+		Save.set_build(slot, b)
+		Sfx.play("back")
+		_show.set_build(b, true)
+		_refresh_car()
+		_info.text = "%s taken off." % p["name"]
+		return
+	if ex.size() >= Parts.MAX_EXTRAS:
+		Sfx.play("denied")
+		_info.text = "That's a lot of extras! Take one off first (max %d)." % Parts.MAX_EXTRAS
+		return
+	ex.append(id)
+	b[Parts.EXTRAS] = ex
+	Save.set_build(slot, b)
+	_snap(b)
+	_info.text = "Snap! %s added." % p["name"]
+
+
+func _start_over() -> void:
+	if not _reset_armed:
+		_reset_armed = true
+		_reset_btn.text = "Sure? Press again"
+		_info.text = "Start Over puts this car back to the basic frame (it keeps its name and paint)."
+		Sfx.play("click", 1.4)
+		return
+	_reset_armed = false
+	_reset_btn.text = "Start Over"
+	var old := _saved()
+	var b := Parts.base_build(old.get("paint", "pt_red"))
+	b["name"] = old.get("name", "My Car")
+	Save.set_build(slot, b)
+	Sfx.play("pop")
+	_snap(b)
+	_info.text = "Back to the basic frame. Now build something awesome!"
 
 
 func _buy_upgrade(tile: PartTile) -> void:
@@ -298,6 +372,7 @@ func _surprise() -> void:
 	for c in Parts.CATEGORIES:
 		var pool: Array = Parts.by_cat[c].filter(func(id): return Save.is_unlocked(id))
 		b[c] = pool[rng.randi() % pool.size()]
+	b[Parts.EXTRAS] = Parts.random_extras(rng)
 	Save.set_build(slot, b)
 	Sfx.play("reward")
 	_snap(b)
@@ -356,7 +431,7 @@ class PartTile:
 		var r := Rect2(Vector2.ZERO, size)
 		var p := Parts.get_part(part_id) if part_id != "" else {}
 		var unlocked := upgrade != "" or Save.is_unlocked(part_id)
-		var equipped: bool = part_id != "" and garage._saved().get(p.get("cat", ""), "") == part_id
+		var equipped: bool = part_id != "" and (part_id in Parts.extras_of(garage._saved()) if p.get("cat", "") == Parts.EXTRAS else garage._saved().get(p.get("cat", ""), "") == part_id)
 		var bg := Color("#24344a")
 		if equipped:
 			bg = Color("#1f7a3a")

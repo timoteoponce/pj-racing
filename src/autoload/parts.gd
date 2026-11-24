@@ -3,7 +3,15 @@ extends Node
 ## Stats: spd (top speed), acc (acceleration), hnd (handling), wgt (weight), off (off-road).
 
 const CATEGORIES := ["chassis", "body", "engine", "wheels", "spoiler", "paint", "driver"]
+## While true every part is open to everyone: no locks, prices, studs shop or power-ups.
+## Flip to false to bring back the unlock/buy progression.
+const FREE_MODE := true
+## Multi-select category: details you can stack on a car (lights, flags, sirens...).
+const EXTRAS := "extras"
+const MAX_EXTRAS := 8
+
 const CATEGORY_NAMES := {
+	"extras": "Extras",
 	"chassis": "Chassis", "body": "Body", "engine": "Engine", "wheels": "Wheels",
 	"spoiler": "Wing", "paint": "Paint", "driver": "Driver",
 }
@@ -35,6 +43,7 @@ var by_cat := {}
 func _ready() -> void:
 	for c in CATEGORIES:
 		by_cat[c] = []
+	by_cat[EXTRAS] = []
 	_define()
 
 
@@ -54,7 +63,8 @@ func _define() -> void:
 	_add("chassis", "ch_hyper", "Hyper GT", 2, {"spd": 8, "acc": 5, "hnd": 6, "wgt": 5, "off": 1}, {"cls": "car"})
 	_add("chassis", "ch_titan", "Titan Crusher", 3, {"spd": 6, "acc": 5, "hnd": 4, "wgt": 10, "off": 10}, {"cls": "monster"})
 
-	# --- bodies
+	# --- bodies ("Just the Frame" is the bare base car)
+	_add("body", "bd_none", "Just the Frame", 0, {"wgt": -1, "acc": 1})
 	_add("body", "bd_box", "Brick Box", 0, {})
 	_add("body", "bd_wedge", "Speed Wedge", 0, {"spd": 1, "acc": -1})
 	_add("body", "bd_pickup", "Pickup", 0, {"wgt": 1, "off": 1, "spd": -1})
@@ -63,6 +73,7 @@ func _define() -> void:
 	_add("body", "bd_cyber", "Cyber Slab", 3, {"spd": 1, "hnd": 1, "wgt": 1, "acc": 1})
 
 	# --- engines
+	_add("engine", "en_tiny", "Tiny Motor", 0, {"spd": -1})
 	_add("engine", "en_v4", "Stud V4", 0, {})
 	_add("engine", "en_v6", "Turbo V6", 1, {"spd": 1, "acc": 1})
 	_add("engine", "en_volt", "Volt Cell", 1, {"acc": 2, "hnd": 1, "spd": -1})
@@ -95,12 +106,27 @@ func _define() -> void:
 	_add("paint", "pt_gold", "Solid Gold", 3, {}, {"pri": "gold", "sec": "c:1b2a34", "acc": "c:f4f4f4"})
 
 	# --- drivers (headgear)
+	_add("driver", "dr_none", "No Hat", 0, {})
 	_add("driver", "dr_helmet", "Racing Helmet", 0, {})
 	_add("driver", "dr_cap", "Cool Cap", 0, {})
 	_add("driver", "dr_viking", "Viking", 1, {"wgt": 1})
 	_add("driver", "dr_astro", "Astronaut", 1, {"acc": 1})
 	_add("driver", "dr_wizard", "Wizard Hat", 2, {"hnd": 1})
 	_add("driver", "dr_crown", "Royal Crown", 3, {"spd": 1})
+
+	# --- extras: stackable details
+	_add(EXTRAS, "ex_lights", "Big Headlights", 0, {})
+	_add(EXTRAS, "ex_bullbar", "Bull Bar", 0, {"wgt": 1})
+	_add(EXTRAS, "ex_pipes", "Side Pipes", 0, {"acc": 1})
+	_add(EXTRAS, "ex_mudflaps", "Mud Flaps", 0, {"off": 1})
+	_add(EXTRAS, "ex_flag", "Racing Flag", 0, {})
+	_add(EXTRAS, "ex_antenna", "Bouncy Antenna", 0, {})
+	_add(EXTRAS, "ex_siren", "Siren Lights", 1, {})
+	_add(EXTRAS, "ex_roofbar", "Roof Light Bar", 1, {})
+	_add(EXTRAS, "ex_horns", "Bull Horns", 1, {"wgt": 1})
+	_add(EXTRAS, "ex_fin", "Shark Fin", 1, {"hnd": 1})
+	_add(EXTRAS, "ex_boosters", "Rocket Boosters", 2, {"acc": 1, "spd": 1})
+	_add(EXTRAS, "ex_number", "Race Number", 0, {})
 
 
 func get_part(id: String) -> Dictionary:
@@ -115,16 +141,24 @@ func starters() -> Array:
 	return out
 
 
+## The base car every build starts from: a go-kart frame, classic wheels, a tiny motor
+## and a driver. Everything else gets added in the garage.
+func base_build(paint := "pt_red") -> Dictionary:
+	return {
+		"chassis": "ch_kart", "body": "bd_none", "engine": "en_tiny", "wheels": "wh_std",
+		"spoiler": "sp_none", "paint": paint, "driver": "dr_none", "extras": [],
+	}
+
+
 func default_build(i: int) -> Dictionary:
-	var presets := [
-		{"chassis": "ch_kart", "body": "bd_box", "engine": "en_v4", "wheels": "wh_std", "spoiler": "sp_lip", "paint": "pt_red", "driver": "dr_helmet"},
-		{"chassis": "ch_monster", "body": "bd_pickup", "engine": "en_v4", "wheels": "wh_monster", "spoiler": "sp_none", "paint": "pt_blue", "driver": "dr_cap"},
-		{"chassis": "ch_racer", "body": "bd_wedge", "engine": "en_v4", "wheels": "wh_slick", "spoiler": "sp_lip", "paint": "pt_yellow", "driver": "dr_helmet"},
-		{"chassis": "ch_kart", "body": "bd_wedge", "engine": "en_v4", "wheels": "wh_std", "spoiler": "sp_none", "paint": "pt_green", "driver": "dr_cap"},
-	]
-	var b: Dictionary = presets[i % presets.size()].duplicate()
-	b["name"] = ["Red Rocket", "Blue Monster", "Yellow Zoomer", "Green Machine"][i % 4]
+	var b := base_build(["pt_red", "pt_blue", "pt_yellow", "pt_green"][i % 4])
+	b["name"] = ["Red Rocket", "Blue Zoomer", "Yellow Flash", "Green Machine"][i % 4]
 	return b
+
+
+func extras_of(build: Dictionary) -> Array:
+	var ex = build.get(EXTRAS, [])
+	return ex if ex is Array else []
 
 
 func random_build(rng: RandomNumberGenerator, max_rarity := 3) -> Dictionary:
@@ -132,7 +166,14 @@ func random_build(rng: RandomNumberGenerator, max_rarity := 3) -> Dictionary:
 	for c in CATEGORIES:
 		var pool: Array = by_cat[c].filter(func(id): return parts[id]["rarity"] <= max_rarity)
 		b[c] = pool[rng.randi() % pool.size()]
+	b[EXTRAS] = random_extras(rng, max_rarity)
 	return b
+
+
+func random_extras(rng: RandomNumberGenerator, max_rarity := 3) -> Array:
+	var pool: Array = by_cat[EXTRAS].filter(func(id): return parts[id]["rarity"] <= max_rarity)
+	pool.shuffle()
+	return pool.slice(0, rng.randi_range(0, 4))
 
 
 func is_monster(build: Dictionary) -> bool:
@@ -143,8 +184,12 @@ func compute_stats(build: Dictionary, upgrades := {}) -> Dictionary:
 	var s := {}
 	for k in STAT_KEYS:
 		s[k] = 0.0
+	var ids := []
 	for c in CATEGORIES:
-		var p := get_part(build.get(c, ""))
+		ids.append(build.get(c, ""))
+	ids.append_array(extras_of(build))
+	for id in ids:
+		var p := get_part(id)
 		if p.is_empty():
 			continue
 		for k in p["stats"]:
