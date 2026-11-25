@@ -21,7 +21,7 @@ func build() -> void:
 	v.add_child(UI.title("CHOOSE A TRACK" if mode == "arcade" else "CHOOSE A CUP", 52))
 	var first: Control
 	var grid := GridContainer.new()
-	grid.columns = 3
+	grid.columns = 4
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation", 18)
@@ -82,7 +82,7 @@ class TrackCard:
 	var _focused := false
 
 	func _init() -> void:
-		custom_minimum_size = Vector2(300, 190)
+		custom_minimum_size = Vector2(250, 180)
 		size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		size_flags_vertical = Control.SIZE_EXPAND_FILL
 		focus_mode = Control.FOCUS_ALL
@@ -101,7 +101,7 @@ class TrackCard:
 		var th := Tracks.theme(d["theme"])
 		col = th["sky_top"]
 		col2 = th["ground"]
-		sub = "%s" % ["Easy", "Easy", "Medium", "Medium", "Hard", "Monster"][Tracks.all().find(d)]
+		sub = d.get("level", "")
 		outlines = [_outline(d["points"])]
 
 	func setup_cup(c: Dictionary) -> void:
@@ -151,7 +151,7 @@ class TrackCard:
 		draw_style_box(sb, r)
 		var f := UI.font()
 		# track outline(s)
-		var area := Rect2(size.x * 0.52, 16, size.x * 0.44, size.y - 40)
+		var area := Rect2(size.x * 0.46, 58, size.x * 0.5, size.y - 70)
 		var k := outlines.size()
 		for i in k:
 			var cell := area
@@ -170,8 +170,9 @@ class TrackCard:
 			draw_polyline(pts, Color.WHITE, 4.0 if k == 1 else 2.5, true)
 			if pts.size() > 0:
 				draw_circle(pts[0], 5.0 if k == 1 else 3.0, UI.RED)
-		draw_string_outline(f, Vector2(18, 48), title_text, HORIZONTAL_ALIGNMENT_LEFT, size.x * 0.55, 28, 8, UI.DARK)
-		draw_string(f, Vector2(18, 48), title_text, HORIZONTAL_ALIGNMENT_LEFT, size.x * 0.55, 28, Color.WHITE)
+		var tfs := 28 if f.get_string_size(title_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 28).x < size.x - 36 else 22
+		draw_string_outline(f, Vector2(18, 44), title_text, HORIZONTAL_ALIGNMENT_LEFT, size.x - 30, tfs, 8, UI.DARK)
+		draw_string(f, Vector2(18, 44), title_text, HORIZONTAL_ALIGNMENT_LEFT, size.x - 30, tfs, Color.WHITE)
 		draw_string_outline(f, Vector2(18, 82), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, 6, UI.DARK)
 		draw_string(f, Vector2(18, 82), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, UI.YELLOW)
 		if trophy > 0:

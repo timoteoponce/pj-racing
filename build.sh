@@ -74,7 +74,7 @@ cmd_check() {
     _run_check "screen: $sc" "" --quit-after 30 -- --screen "$sc"
   done
   _run_check "gamepad menu navigation" "PAD TEST OK" -- --pad-test
-  local tracks="${*:-park dunes frost city lava mud}"
+  local tracks="${*:-park dunes frost city lava mud space}"
   for t in $tracks; do
     _run_check "cpu race: $t" "DEMO RACE OK" -- --demo "$t"
   done
@@ -101,6 +101,44 @@ cmd_export() {
   say "Exporting Linux build..."
   godot --headless --path "$ROOT" --export-release "Linux" "$BUILD_DIR/pj-racing.x86_64"
   ok "Built $BUILD_DIR/pj-racing.x86_64"
+}
+
+# Installs the exported game for the current user only (no sudo): binary, launcher on PATH,
+# app-menu entry and icon, all under ~/.local.
+APP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/pj-racing"
+BIN_LINK="$HOME/.local/bin/pj-racing"
+DESKTOP_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/applications/pj-racing.desktop"
+ICON_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps/pj-racing.svg"
+
+cmd_install() {
+  cmd_export
+  say "Installing for $USER into ~/.local ..."
+  mkdir -p "$APP_DIR" "$(dirname "$BIN_LINK")" "$(dirname "$DESKTOP_FILE")" "$(dirname "$ICON_FILE")"
+  install -m 755 "$BUILD_DIR/pj-racing.x86_64" "$APP_DIR/pj-racing.x86_64"
+  install -m 644 "$ROOT/icon.svg" "$ICON_FILE"
+  ln -sf "$APP_DIR/pj-racing.x86_64" "$BIN_LINK"
+  cat > "$DESKTOP_FILE" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=PJ-Racing
+GenericName=Lego Kart Racer
+Comment=Build your own lego car and race it
+Exec=$APP_DIR/pj-racing.x86_64
+Icon=pj-racing
+Terminal=false
+Categories=Game;ArcadeGame;
+Keywords=racing;kart;lego;
+DESKTOP
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$(dirname "$DESKTOP_FILE")" || true
+  command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q -t "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" 2>/dev/null || true
+  ok "Installed! Start it from your app menu (PJ-Racing) or run: pj-racing"
+  case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) say "Note: ~/.local/bin is not on your PATH; use the app menu or $APP_DIR/pj-racing.x86_64" ;; esac
+}
+
+cmd_uninstall() {
+  rm -f "$BIN_LINK" "$DESKTOP_FILE" "$ICON_FILE" "$APP_DIR/pj-racing.x86_64"
+  rmdir "$APP_DIR" 2>/dev/null || true
+  ok "Uninstalled (your save and garage are kept)"
 }
 
 cmd_pads() {
@@ -132,6 +170,8 @@ ${c_bold}PJ-Racing build script${c_0}
   ./build.sh editor       Open the Godot editor
   ./build.sh check [ids]  Smoke test: all screens, CPU races on every track, full tournament
   ./build.sh export       Build a standalone Linux executable into build/
+  ./build.sh install      Export and install for this user (~/.local: app menu + 'pj-racing' command)
+  ./build.sh uninstall    Remove the user install (keeps your save)
   ./build.sh pads         List detected game controllers
   ./build.sh reset-save   Back up and reset your save (studs, parts, garage)
   ./build.sh clean        Remove caches and build output
@@ -144,6 +184,8 @@ case "${1:-run}" in
   editor) shift; cmd_editor "$@" ;;
   check) shift; cmd_check "$@" ;;
   export) cmd_export ;;
+  install) cmd_install ;;
+  uninstall) cmd_uninstall ;;
   pads) cmd_pads ;;
   reset-save) cmd_reset_save ;;
   clean) cmd_clean ;;

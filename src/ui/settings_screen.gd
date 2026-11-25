@@ -7,12 +7,15 @@ var _reset_btn: Button
 
 func build() -> void:
 	var v := UI.center_box(self, 560)
-	v.add_theme_constant_override("separation", 10)
+	v.add_theme_constant_override("separation", 6)
 	v.add_child(UI.title("SETTINGS", 50))
 
 	var easy := Cycler.new("Easy Driving (auto gas)", ["Off", "On"], 1 if Save.setting("easy_drive", true) else 0)
 	easy.changed.connect(func(i): Save.set_setting("easy_drive", i == 1))
 	v.add_child(easy)
+	var tips := Cycler.new("Help Tips While Racing", ["Off", "On"], 1 if Save.setting("tips", true) else 0)
+	tips.changed.connect(func(i): Save.set_setting("tips", i == 1))
+	v.add_child(tips)
 	var laps_idx := maxi(0, Game.LENGTH_LAPS.find(Game.laps))
 	var length := Cycler.new("Race Length", Game.LENGTH_NAMES, laps_idx)
 	length.changed.connect(func(i):

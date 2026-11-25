@@ -25,6 +25,9 @@ var item_offsets: Array = []
 var minimap_pts := PackedVector2Array()
 var bounds := Rect2()
 var start_lights: Array[StandardMaterial3D] = []
+var gravity_scale := 1.0
+var is_space := false
+var _spinners: Array = []  # [Node3D, speed]
 
 # sampled frame cache
 var _s: PackedFloat32Array
@@ -44,6 +47,8 @@ func build(d: Dictionary) -> void:
 	ground_y = theme.get("ground_y", -0.1)
 	kill_y = ground_y - 12.0
 	bumps = d.get("bumps", 0.0)
+	gravity_scale = d.get("gravity", 1.0)
+	is_space = theme.get("space", false)
 	_rng.seed = hash(d["id"])
 	_make_curve(d["points"])
 	_plan_features()
@@ -55,6 +60,13 @@ func build(d: Dictionary) -> void:
 	_build_start()
 	_build_features()
 	_build_decor()
+	_build_details()
+
+
+func _process(dt: float) -> void:
+	for sp in _spinners:
+		var n: Node3D = sp[0]
+		n.rotate_object_local(Vector3.UP, float(sp[1]) * dt)
 
 
 # ------------------------------------------------------------------ curve + queries
@@ -290,13 +302,16 @@ func _build_environment() -> void:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
-	var sm := ProceduralSkyMaterial.new()
-	sm.sky_top_color = theme["sky_top"]
-	sm.sky_horizon_color = theme["sky_horizon"]
-	sm.ground_horizon_color = theme["sky_horizon"]
-	sm.ground_bottom_color = theme["hill"]
-	sm.sun_angle_max = 20.0
-	sky.sky_material = sm
+	if is_space:
+		sky.sky_material = _space_sky()
+	else:
+		var sm := ProceduralSkyMaterial.new()
+		sm.sky_top_color = theme["sky_top"]
+		sm.sky_horizon_color = theme["sky_horizon"]
+		sm.ground_horizon_color = theme["sky_horizon"]
+		sm.ground_bottom_color = theme["hill"]
+		sm.sun_angle_max = 20.0
+		sky.sky_material = sm
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_energy = 0.55 if theme["night"] else 0.45
@@ -329,6 +344,61 @@ func _build_environment() -> void:
 	add_child(sun)
 
 
+const SPACE_SKY := """
+shader_type sky;
+uniform vec3 top_col;
+uniform vec3 mid_col;
+
+float hash(vec3 p) {
+	p = fract(p * 0.3183099 + 0.1);
+	p *= 17.0;
+	return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+float noise(vec3 x) {
+	vec3 i = floor(x);
+	vec3 f = fract(x);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(mix(hash(i), hash(i + vec3(1, 0, 0)), f.x), mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+		mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x), mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+
+void sky() {
+	vec3 d = normalize(EYEDIR);
+	vec3 col = mix(mid_col, top_col, smoothstep(0.0, 0.7, abs(d.y)));
+	float n = noise(d * 2.5) * 0.55 + noise(d * 6.0) * 0.3 + noise(d * 13.0) * 0.15;
+	float neb = smoothstep(0.42, 0.85, n);
+	vec3 nebc = mix(vec3(0.95, 0.25, 0.75), vec3(0.25, 0.55, 1.0), noise(d * 1.7 + 5.0));
+	col += nebc * neb * 0.5;
+	for (int layer = 0; layer < 2; layer++) {
+		float sc = layer == 0 ? 55.0 : 110.0;
+		vec3 p = d * sc;
+		vec3 c = floor(p);
+		vec3 f = fract(p) - 0.5;
+		float r = hash(c + float(layer) * 31.0);
+		if (r > 0.9) {
+			vec3 o = vec3(hash(c + 3.1), hash(c + 7.7), hash(c + 1.3)) - 0.5;
+			float dist = length(f - o * 0.6);
+			float tw = 0.75 + 0.25 * sin(TIME * (2.0 + r * 4.0) + r * 90.0);
+			float b = smoothstep(0.16, 0.0, dist) * (0.8 + 14.0 * (r - 0.9)) * tw;
+			col += b * mix(vec3(1.0, 0.85, 0.7), vec3(0.7, 0.85, 1.0), hash(c + 9.0));
+		}
+	}
+	COLOR = col;
+}
+"""
+
+
+func _space_sky() -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = SPACE_SKY
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	m.set_shader_parameter("top_col", Color(theme["sky_top"]))
+	m.set_shader_parameter("mid_col", Color(theme["sky_horizon"]))
+	return m
+
+
 func _build_road() -> void:
 	var road := Surf.new()
 	var curbs := Surf.new()
@@ -356,14 +426,26 @@ func _build_road() -> void:
 			var b := _lat(j, sgn * outer)
 			var a2 := Vector3(a.x, ground_y - 1.0, a.z)
 			var b2 := Vector3(b.x, ground_y - 1.0, b.z)
+			if is_space:  # floating slab instead of a wall down to the ground
+				a2 = a - _u[i] * 1.6
+				b2 = b - _u[j] * 1.6
 			skirt.quad(a, b, b2, a2, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, _r[i] * sgn)
-	var road_mat := Tex.mat(Tex.road(theme["road"]))
+		if is_space:
+			var d := _u[i] * 1.6
+			var e := _u[j] * 1.6
+			skirt.quad(_lat(i, -outer) - d, _lat(i, outer) - d, _lat(j, outer) - e, _lat(j, -outer) - e, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, -n0)
+	var road_mat := Tex.mat(Tex.rainbow(), false, Vector3.ONE, 0.22) if is_space else Tex.mat(Tex.road(theme["road"]))
 	road_mat.roughness = 0.7
 	_add_mesh(road.mesh(road_mat))
 	var wc: Array = theme["walls"]
-	_add_mesh(curbs.mesh(Tex.mat(Tex.stripes(wc[0], Color("#f4f4f4") if wc[0] != Color("#f4f4f4") else Color("#c91a09")))))
-	_add_mesh(shoulders.mesh(Tex.mat(Tex.baseplate(theme["shoulder"]), true, Vector3.ONE * 0.5)))
-	_add_mesh(skirt.mesh(Tex.mat(Tex.bricks(theme["skirt"]), true, Vector3.ONE * 0.25)), true)
+	if is_space:
+		_add_mesh(curbs.mesh(Tex.mat(Tex.stripes(Color("#f4f4f4"), Color("#3bc8ff")), false, Vector3.ONE, 0.9)))
+		_add_mesh(shoulders.mesh(Tex.mat(Tex.baseplate(theme["shoulder"]), true, Vector3.ONE * 0.5, 0.25)))
+		_add_mesh(skirt.mesh(Tex.mat(Tex.stripes(Color("#2a1a6a"), Color("#9b5bff"), 4), true, Vector3.ONE * 0.4, 0.6)), false)
+	else:
+		_add_mesh(curbs.mesh(Tex.mat(Tex.stripes(wc[0], Color("#f4f4f4") if wc[0] != Color("#f4f4f4") else Color("#c91a09")))))
+		_add_mesh(shoulders.mesh(Tex.mat(Tex.baseplate(theme["shoulder"]), true, Vector3.ONE * 0.5)))
+		_add_mesh(skirt.mesh(Tex.mat(Tex.bricks(theme["skirt"]), true, Vector3.ONE * 0.25)), true)
 	var all := road.faces
 	all.append_array(curbs.faces)
 	_static(all, "road")
@@ -386,8 +468,12 @@ func _build_walls() -> void:
 			var x := Vector3.UP.cross(z).normalized()
 			var center := (a + b) * 0.5 + Vector3.UP * 0.6
 			var c: Color = wc[(i / 2 + (1 if sgn > 0 else 0)) % wc.size()]
-			lm.box(LegoMesh.key(c), Transform3D(Basis(x, Vector3.UP, z), center), Vector3(WALL_T, 1.2, dir.length() + 0.08))
-			lm.studs_on(LegoMesh.key(c), Transform3D(Basis(x, Vector3.UP, z), center + Vector3.UP * 0.6), WALL_T, dir.length(), 1.25, 6)
+			var k := LegoMesh.key(c)
+			if is_space:
+				c = wc[(i / 3) % wc.size()]
+				k = LegoMesh.glow(c)
+			lm.box(k, Transform3D(Basis(x, Vector3.UP, z), center), Vector3(WALL_T, 1.2, dir.length() + 0.08))
+			lm.studs_on(k, Transform3D(Basis(x, Vector3.UP, z), center + Vector3.UP * 0.6), WALL_T, dir.length(), 1.25, 6)
 			# collision: inner face, taller than the visual so karts don't hop out
 			var ia := _lat(i, sgn * hc)
 			var ib := _lat(j, sgn * hc)
@@ -414,6 +500,7 @@ func _build_ground() -> void:
 	mi.mesh = pm
 	mi.position = Vector3(center.x, ground_y, center.y)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visible = not is_space
 	add_child(mi)
 	var sb := StaticBody3D.new()
 	sb.add_to_group(theme["ground_kind"])
@@ -555,7 +642,7 @@ func _build_decor() -> void:
 		var p := Vector2(_rng.randf_range(r.position.x, r.end.x), _rng.randf_range(r.position.y, r.end.y))
 		var d := _dist_to_track(p)
 		var kind: String = kinds[_rng.randi() % kinds.size()]
-		var clearance := half_corridor + WALL_T + (9.0 if kind == "building" or kind == "pyramid" else 3.5)
+		var clearance := half_corridor + WALL_T + (9.0 if kind == "building" or kind == "pyramid" else 3.5) + (8.0 if is_space else 0.0)
 		if d < clearance:
 			continue
 		if d > clearance + 60.0 and _rng.randf() < 0.6:
@@ -563,8 +650,16 @@ func _build_decor() -> void:
 		var key := Vector2i(floori(p.x / CHUNK), floori(p.y / CHUNK))
 		if not chunks.has(key):
 			chunks[key] = LegoMesh.new()
-		_decor(chunks[key], kind, Vector3(p.x, ground_y, p.y), d - clearance)
+		var y := ground_y
+		if is_space:
+			y = curve.sample_baked(curve.get_closest_offset(Vector3(p.x, 10.0, p.y))).y + _rng.randf_range(-28.0, 30.0)
+		_decor(chunks[key], kind, Vector3(p.x, y, p.y), d - clearance)
 		placed += 1
+	for k in chunks:
+		add_child(chunks[k].to_instance(Game.quality >= 2))
+	if is_space:
+		_build_planets()
+		return
 	# distant lego mountains
 	var center := bounds.get_center()
 	var rad := maxf(bounds.size.x, bounds.size.y) * 0.5 + 170.0
@@ -585,8 +680,6 @@ func _build_decor() -> void:
 				hills.box(LegoMesh.glow(Color("#ff6a00")), Transform3D(Basis(), base + Vector3(0, k * 9.0 + 9.5, 0)), Vector3(lw * 0.5, 1.0, lw * 0.5))
 			hills.box(LegoMesh.key(col), Transform3D(Basis(Vector3.UP, a), base + Vector3(0, k * 9.0 + 4.5, 0)), Vector3(lw, 9.0, lw), k == layers - 1, 6.0, LegoMesh.key(col))
 	add_child(hills.to_instance(false))
-	for k in chunks:
-		add_child(chunks[k].to_instance(Game.quality >= 2))
 
 
 func _decor(lm: LegoMesh, kind: String, p: Vector3, room: float) -> void:
@@ -690,3 +783,311 @@ func _decor(lm: LegoMesh, kind: String, p: Vector3, room: float) -> void:
 			lm.box(c, Transform3D(rot * Basis(Vector3.FORWARD, 0.3), p + rot * Vector3(0, 1.1, 0.3)), Vector3(1.8, 0.4, 1.6))
 			for k in 4:
 				lm.cylinder("rubber", Transform3D(rot * Basis(Vector3.BACK, PI * 0.5), p + rot * Vector3(-1.1 if k % 2 == 0 else 1.1, 0.45, -1.2 if k < 2 else 1.2)), 0.45, 0.35, 10)
+		"house":
+			var wall := LegoMesh.key([Color("#f4f4f4"), Color("#f2cd37"), Color("#9fc3e9"), Color("#ffb0c8")][_rng.randi() % 4])
+			var roof := LegoMesh.key([Color("#c91a09"), Color("#0055bf"), Color("#6b3d1f")][_rng.randi() % 3])
+			lm.box(wall, at.call(0, 2.0, 0), Vector3(6, 4, 5))
+			for k in 4:
+				lm.box(roof, at.call(0, 4.4 + k * 0.8, 0), Vector3(6.6, 0.8, 5.6 - k * 1.4))
+			lm.box(LegoMesh.key(Color("#6b3d1f")), at.call(0, 1.2, 2.52), Vector3(1.2, 2.4, 0.1))
+			for wx in [-1.9, 1.9]:
+				lm.box("glass", at.call(wx, 2.4, 2.52), Vector3(1.2, 1.1, 0.1))
+			lm.box(LegoMesh.key(Color("#8a8a8a")), at.call(1.8, 5.8, -0.8), Vector3(0.8, 2.0, 0.8))
+		"windmill":
+			var wall := LegoMesh.key(Color("#f4f4f4"))
+			lm.frustum(wall, at.call(0, 4.5, 0), 2.6, 1.6, 9.0, 10)
+			lm.frustum(LegoMesh.key(Color("#c91a09")), at.call(0, 10.0, 0), 2.0, 0.2, 2.2, 10)
+			var hub: Vector3 = at.call(0, 8.0, -2.0).origin
+			var fwd := rot * Vector3(0, 0, -1)
+			var side := rot * Vector3(1, 0, 0)
+			var spin := _rng.randf() * TAU
+			for k in 4:
+				var a := spin + TAU * k / 4.0
+				var dirv := side * cos(a) + Vector3.UP * sin(a)
+				_bar(lm, LegoMesh.key(Color("#6b3d1f")), hub, hub + dirv * 5.5, 0.3)
+				_bar(lm, LegoMesh.key(Color("#f4f4f4")), hub + dirv * 1.5 + fwd * 0.2 + dirv.cross(fwd) * 0.6, hub + dirv * 5.3 + fwd * 0.2 + dirv.cross(fwd) * 0.6, 0.9)
+			lm.cylinder(LegoMesh.key(Color("#1b2a34")), Transform3D(rot * Basis(Vector3.RIGHT, PI * 0.5), hub), 0.5, 0.6, 10)
+		"tent":
+			var c1 := LegoMesh.key([Color("#c91a09"), Color("#0055bf"), Color("#fe8a18")][_rng.randi() % 3])
+			var c2 := LegoMesh.key(Color("#f4f4f4"))
+			for k in 4:
+				var z := -2.25 + k * 1.5
+				for sgn in [-1.0, 1.0]:
+					lm.box(c1 if k % 2 == 0 else c2, Transform3D(rot * Basis(Vector3.BACK, sgn * 0.75), p + rot * Vector3(sgn * 1.05, 1.4, z)), Vector3(0.2, 3.3, 1.5))
+			lm.box(LegoMesh.key(Color("#6b3d1f")), at.call(0, 3.2, 0), Vector3(0.2, 0.2, 6.4))
+		"igloo":
+			var w := LegoMesh.key(Color("#f4f6ff"))
+			var r := _rng.randf_range(2.5, 3.5)
+			for k in 4:
+				var y := (k + 0.5) * r / 4.0
+				lm.cylinder(w, at.call(0, y, 0), sqrt(r * r - y * y), r / 4.0, 14)
+			lm.box(w, at.call(0, 0.8, r - 0.2), Vector3(1.8, 1.6, 1.6))
+			lm.box(LegoMesh.key(Color("#1b2a34")), at.call(0, 0.7, r + 0.62), Vector3(1.0, 1.3, 0.05))
+		"billboard":
+			var cols := [Color("#ff2bd6"), Color("#2be0ff"), Color("#fff27a"), Color("#a0ffb0")]
+			for sx in [-3.0, 3.0]:
+				lm.box(LegoMesh.key(Color("#1b2a34")), at.call(sx, 4.0, 0), Vector3(0.5, 8, 0.5))
+			lm.box(LegoMesh.key(Color("#1b2a34")), at.call(0, 8.5, 0), Vector3(9, 4.6, 0.5))
+			lm.box(LegoMesh.glow(cols[_rng.randi() % 4]), at.call(0, 8.5, 0.3), Vector3(8.2, 3.8, 0.1))
+			lm.box(LegoMesh.glow(cols[_rng.randi() % 4]), at.call(0, 8.5, -0.3), Vector3(8.2, 3.8, 0.1))
+			lm.box(LegoMesh.glow(Color("#f4f4f4")), at.call(0, 8.9, 0.36), Vector3(5.0, 0.5, 0.05))
+			lm.box(LegoMesh.glow(Color("#f4f4f4")), at.call(-1.0, 7.9, 0.36), Vector3(3.0, 0.5, 0.05))
+		"barrel":
+			for k in _rng.randi_range(1, 3):
+				var o := Vector3(_rng.randf_range(-1.5, 1.5), 0, _rng.randf_range(-1.5, 1.5))
+				var c := LegoMesh.key([Color("#c91a09"), Color("#0055bf"), Color("#f2cd37")][_rng.randi() % 3])
+				lm.cylinder(c, at.call(o.x, 0.9, o.z), 0.7, 1.8, 12)
+				lm.cylinder(LegoMesh.key(Color("#1b2a34")), at.call(o.x, 0.6, o.z), 0.72, 0.12, 12)
+				lm.cylinder(LegoMesh.key(Color("#1b2a34")), at.call(o.x, 1.3, o.z), 0.72, 0.12, 12)
+				if theme["ground_kind"] == "hazard":
+					lm.cylinder(LegoMesh.glow(Color("#7dff3a")), at.call(o.x, 1.82, o.z), 0.55, 0.06, 12)
+		"asteroid":
+			var b := Basis.from_euler(Vector3(_rng.randf() * TAU, _rng.randf() * TAU, _rng.randf() * TAU))
+			var c := LegoMesh.key(Color("#5a5068").lerp(Color("#8a7a6a"), _rng.randf()))
+			var s := _rng.randf_range(1.5, 4.0)
+			lm.box(c, Transform3D(b, p), Vector3(2.4, 1.8, 2.0) * s, true, 0.8 * s)
+			lm.box(c, Transform3D(b, p + b * Vector3(0.8, -0.9, 0.4) * s), Vector3(1.6, 1.4, 1.4) * s, true, 0.7 * s)
+			lm.box(c, Transform3D(b, p + b * Vector3(-0.9, 0.3, -0.6) * s), Vector3(1.2, 1.2, 1.2) * s)
+			if _rng.randf() < 0.4:
+				lm.box(LegoMesh.glow(Color("#3bc8ff")), Transform3D(b, p + b * Vector3(0, 0.95, 0) * s), Vector3(0.5, 0.6, 0.5) * s)
+		"star":
+			var k := LegoMesh.glow([Color("#ffe23b"), Color("#fff6b0"), Color("#ffb03b")][_rng.randi() % 3])
+			var s := _rng.randf_range(1.2, 2.6)
+			for i in 5:
+				var a := TAU * i / 5.0 + PI * 0.5
+				var tip := p + rot * Vector3(cos(a), sin(a), 0) * 2.0 * s
+				_bar(lm, k, p, tip, 0.9 * s)
+			lm.cylinder(k, Transform3D(rot * Basis(Vector3.RIGHT, PI * 0.5), p), 0.9 * s, 0.7 * s, 10)
+		"satellite":
+			var b := Basis.from_euler(Vector3(_rng.randf_range(-0.6, 0.6), _rng.randf() * TAU, _rng.randf_range(-0.6, 0.6)))
+			lm.box("gold", Transform3D(b, p), Vector3(1.6, 1.6, 2.2))
+			for sx in [-1.0, 1.0]:
+				lm.box(LegoMesh.key(Color("#a0a5a9")), Transform3D(b, p + b * Vector3(sx * 1.6, 0, 0)), Vector3(1.6, 0.15, 0.15))
+				lm.box(LegoMesh.key(Color("#1f3a8a")), Transform3D(b, p + b * Vector3(sx * 3.6, 0, 0)), Vector3(3.0, 0.1, 1.8), true, 0.5, LegoMesh.glow(Color("#3b6bff")))
+			lm.frustum("chrome", Transform3D(b * Basis(Vector3.RIGHT, -PI * 0.5), p + b * Vector3(0, 0, -1.4)), 0.2, 1.1, 0.6, 12)
+			lm.box(LegoMesh.glow(Color("#ff3b3b")), Transform3D(b, p + b * Vector3(0, 1.1, 0)), Vector3(0.25, 0.5, 0.25))
+		"rocket":
+			var tilt := Basis(Vector3.UP, _rng.randf() * TAU) * Basis(Vector3.RIGHT, _rng.randf_range(-0.5, 0.5))
+			var body := LegoMesh.key(Color("#f4f4f4"))
+			var acc := LegoMesh.key([Color("#c91a09"), Color("#0055bf"), Color("#fe8a18")][_rng.randi() % 3])
+			lm.cylinder(body, Transform3D(tilt, p + tilt * Vector3(0, 3, 0)), 1.0, 6.0, 12)
+			lm.cylinder(acc, Transform3D(tilt, p + tilt * Vector3(0, 4.0, 0)), 1.02, 0.6, 12)
+			lm.frustum(acc, Transform3D(tilt, p + tilt * Vector3(0, 7.2, 0)), 1.0, 0.0, 2.4, 12)
+			lm.cylinder("glass", Transform3D(tilt * Basis(Vector3.RIGHT, PI * 0.5), p + tilt * Vector3(0, 5.0, 0.95)), 0.4, 0.15, 10)
+			for i in 3:
+				var fb := tilt * Basis(Vector3.UP, TAU * i / 3.0)
+				lm.box(acc, Transform3D(fb, p + fb * Vector3(0, 0.6, 1.3)), Vector3(0.2, 2.0, 1.2))
+			lm.frustum(LegoMesh.glow(Color("#ff8a2b")), Transform3D(tilt, p + tilt * Vector3(0, -1.0, 0)), 0.1, 0.8, 2.0, 10)
+			lm.frustum(LegoMesh.glow(Color("#fff27a")), Transform3D(tilt, p + tilt * Vector3(0, -0.5, 0)), 0.1, 0.5, 1.2, 10)
+		"ufo":
+			var b := Basis(Vector3.UP, _rng.randf() * TAU) * Basis(Vector3.RIGHT, _rng.randf_range(-0.3, 0.3))
+			lm.frustum("chrome", Transform3D(b, p), 4.0, 2.4, 0.9, 16)
+			lm.frustum("chrome", Transform3D(b, p - b * Vector3(0, 0.7, 0)), 1.6, 4.0, 0.5, 16)
+			lm.frustum("glass", Transform3D(b, p + b * Vector3(0, 1.0, 0)), 1.8, 0.8, 1.2, 12)
+			lm.box(LegoMesh.key(Color("#3bff7a")), Transform3D(b, p + b * Vector3(0, 0.9, 0)), Vector3(0.6, 0.8, 0.6))
+			for i in 8:
+				var a := TAU * i / 8.0
+				lm.box(LegoMesh.glow([Color("#3bff7a"), Color("#ff3bd6")][i % 2]), Transform3D(b, p + b * Vector3(cos(a) * 3.3, -0.1, sin(a) * 3.3)), Vector3(0.4, 0.3, 0.4))
+		"crystal":
+			var k := LegoMesh.glow([Color("#3bc8ff"), Color("#ff3bd6"), Color("#9b5bff")][_rng.randi() % 3])
+			var s := _rng.randf_range(1.0, 2.2)
+			for i in 3:
+				var b := Basis(Vector3.UP, _rng.randf() * TAU) * Basis(Vector3.RIGHT, _rng.randf_range(-0.4, 0.4))
+				var h := _rng.randf_range(2.0, 4.0) * s
+				lm.frustum(k, Transform3D(b, p + b * Vector3(0, h * 0.5, 0)), 0.6 * s, 0.0, h, 6)
+				lm.frustum(k, Transform3D(b, p - b * Vector3(0, h * 0.3, 0)), 0.0, 0.6 * s, h * 0.6, 6)
+
+
+## A brick-built ball: stacked round plates, like a lego planet.
+func _ball(lm: LegoMesh, k: String, c: Vector3, r: float, layers := 8, seg := 16) -> void:
+	var h := 2.0 * r / layers
+	for i in layers:
+		var y := -r + (i + 0.5) * h
+		lm.cylinder(k, Transform3D(Basis(), c + Vector3(0, y, 0)), sqrt(maxf(r * r - y * y, 0.0)) + h * 0.15, h, seg)
+
+
+## A square bar between two points.
+func _bar(lm: LegoMesh, k: String, a: Vector3, b: Vector3, thick: float) -> void:
+	var z := (b - a).normalized()
+	var x := Vector3.UP.cross(z)
+	if x.length() < 0.01:
+		x = Vector3.RIGHT
+	x = x.normalized()
+	var y := z.cross(x).normalized()
+	lm.box(k, Transform3D(Basis(x, y, z), (a + b) * 0.5), Vector3(thick, thick, a.distance_to(b)))
+
+
+func _build_planets() -> void:
+	var center := bounds.get_center()
+	var rad := maxf(bounds.size.x, bounds.size.y) * 0.5 + 220.0
+	var palette := [
+		[Color("#e8743b"), Color("#c94a2a")], [Color("#3b8ee8"), Color("#2fbf6a")], [Color("#c45bff"), Color("#ff79c6")],
+		[Color("#f2cd37"), Color("#e8a23b")], [Color("#3bc8c8"), Color("#f4f4f4")], [Color("#ff5a6b"), Color("#ffb0c8")],
+		[Color("#8a7aff"), Color("#3b3b9b")],
+	]
+	for i in palette.size():
+		var a := TAU * i / palette.size() + _rng.randf_range(-0.2, 0.2)
+		var pr := rad + _rng.randf_range(0.0, 140.0)
+		var r := _rng.randf_range(22.0, 55.0) if i != 2 else 85.0
+		var pos := Vector3(center.x + cos(a) * pr, _rng.randf_range(-30.0, 90.0), center.y + sin(a) * pr)
+		var cols: Array = palette[i]
+		var lm := LegoMesh.new()
+		var layers := 12
+		var h := 2.0 * r / layers
+		for k in layers:
+			var y := -r + (k + 0.5) * h
+			var c: Color = cols[0] if (k / 2) % 2 == 0 else cols[1]
+			lm.cylinder(LegoMesh.key(c), Transform3D(Basis(), Vector3(0, y, 0)), sqrt(maxf(r * r - y * y, 0.0)) + h * 0.15, h, 20)
+		if i % 2 == 0:  # ring
+			lm.cylinder(LegoMesh.key(cols[1].lightened(0.3)), Transform3D(), r * 1.9, r * 0.03, 28)
+			lm.cylinder(LegoMesh.key(cols[0].lightened(0.4)), Transform3D(), r * 1.55, r * 0.05, 28)
+		var holder := Node3D.new()
+		holder.position = pos
+		holder.rotation = Vector3(_rng.randf_range(-0.5, 0.5), 0, _rng.randf_range(-0.5, 0.5))
+		add_child(holder)
+		var mi := lm.to_instance(false)
+		holder.add_child(mi)
+		_spinners.append([mi, _rng.randf_range(0.03, 0.12) * (1.0 if i % 2 == 0 else -1.0)])
+	# a glowing star (sun) and a little moon close to the track
+	var sun_lm := LegoMesh.new()
+	_ball(sun_lm, LegoMesh.glow(Color("#fff2b0")), Vector3.ZERO, 40.0, 10, 20)
+	var sun := sun_lm.to_instance(false)
+	sun.position = Vector3(center.x - rad * 1.3, 160.0, center.y - rad * 0.9)
+	add_child(sun)
+	var moon_lm := LegoMesh.new()
+	_ball(moon_lm, LegoMesh.key(Color("#c8c8d0")), Vector3.ZERO, 14.0, 8, 16)
+	for k in 5:
+		var d := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-0.2, 1), _rng.randf_range(-1, 1)).normalized()
+		moon_lm.cylinder(LegoMesh.key(Color("#9a9aa6")), Transform3D(Basis(Vector3.UP, 0), d * 13.0), 2.5, 2.0, 10)
+	var moon := moon_lm.to_instance(false)
+	moon.position = Vector3(center.x + bounds.size.x * 0.15, 70.0, center.y + 20.0)
+	add_child(moon)
+	_spinners.append([moon, 0.08])
+
+
+# ------------------------------------------------------------------ trackside details
+
+func _clear_of_features(s: float, margin: float) -> bool:
+	for r in ramp_offsets:
+		if absf(s - r) < margin + 15.0:
+			return false
+	for b in boost_offsets + item_offsets:
+		if absf(s - b) < margin:
+			return false
+	return true
+
+
+func _base_y(top: Vector3) -> float:
+	return top.y - 2.0 if is_space else ground_y
+
+
+## Chevron signs on the outside of sharp corners, banner arches over the road and flags on the walls.
+func _build_details() -> void:
+	var lm := LegoMesh.new()
+	var wc: Array = theme["walls"]
+	var night: bool = theme["night"]
+	var hc := half_corridor + WALL_T
+	# corner chevrons
+	var s := 45.0
+	while s < length - 25.0:
+		var a := tangent_at(s - 6.0)
+		var b := tangent_at(s + 22.0)
+		a.y = 0
+		b.y = 0
+		var turn := a.normalized().signed_angle_to(b.normalized(), Vector3.UP)
+		if absf(turn) > 0.5:
+			var sgn := 1.0 if turn > 0.0 else -1.0  # outside of the corner
+			_chevron(lm, s, sgn, hc + 1.4, night)
+			s += 11.0
+		else:
+			s += 5.0
+	# banner arches
+	var banners := ["GO! GO! GO!", "TURBO TIME!", "FULL SPEED!", "YOU CAN DO IT!", "ZOOOOM!"]
+	if is_space:
+		banners = ["TO THE STARS!", "ZOOOOM!", "STAR POWER!"]
+	var placed := 0
+	for f in [0.33, 0.62, 0.86]:
+		var at: float = length * f
+		for tries in 12:
+			if _clear_of_features(at, 6.0):
+				break
+			at += 7.0
+		_arch(lm, at, banners[(_rng.randi() + placed) % banners.size()], wc, night)
+		placed += 1
+	# flags on the walls
+	var fs := 30.0
+	var side := 1.0
+	while fs < length - 15.0:
+		var fr := frame_at(fs)
+		var base := fr.origin + fr.basis.x * side * (half_corridor + WALL_T * 0.5) + Vector3.UP * 1.2
+		var c: Color = wc[int(fs / 30.0) % wc.size()]
+		var pole := LegoMesh.key(Color("#a0a5a9"))
+		lm.box(pole, Transform3D(Basis(), base + Vector3.UP * 2.0), Vector3(0.18, 4.0, 0.18))
+		var t := fr.basis.z  # flag waves backwards (with the wind of the racers)
+		var fk := LegoMesh.glow(c) if night else LegoMesh.key(c)
+		lm.box(fk, Transform3D(Basis(fr.basis.x, Vector3.UP, t), base + Vector3.UP * 3.4 + t * 0.75), Vector3(0.06, 1.0, 1.5))
+		lm.cylinder("gold", Transform3D(Basis(), base + Vector3.UP * 4.05), 0.16, 0.16, 8)
+		fs += 34.0
+		side = -side
+	add_child(lm.to_instance(Game.quality >= 2))
+
+
+func _chevron(lm: LegoMesh, s: float, sgn: float, lat: float, night: bool) -> void:
+	var f := frame_at(s)
+	var r := f.basis.x
+	r.y = 0
+	r = r.normalized()
+	var t := -f.basis.z
+	t.y = 0
+	t = t.normalized()
+	var top := f.origin + r * sgn * lat + Vector3.UP * 2.6
+	var board_k := LegoMesh.key(Color("#1b2a34")) if night else LegoMesh.key(Color("#f2cd37"))
+	var mark_k := LegoMesh.glow(Color("#ffe23b") if not is_space else Color("#ff3bd6")) if night else LegoMesh.key(Color("#c91a09"))
+	var bb := Basis(r, Vector3.UP, -t)
+	lm.box(board_k, Transform3D(bb, top), Vector3(0.3, 2.0, 2.4))
+	# ">" pointing in the driving direction, on the road-facing side
+	var face := top - r * sgn * 0.2
+	var tip := face + t * 0.55
+	_bar(lm, mark_k, face - t * 0.45 + Vector3.UP * 0.6, tip, 0.34)
+	_bar(lm, mark_k, face - t * 0.45 - Vector3.UP * 0.6, tip, 0.34)
+	var by := _base_y(top)
+	var ph := top.y - 1.0 - by
+	if ph > 0.2:
+		lm.box(LegoMesh.key(Color("#a0a5a9")), Transform3D(Basis(), Vector3(top.x, by + ph * 0.5, top.z)), Vector3(0.25, ph, 0.25))
+
+
+func _arch(lm: LegoMesh, s: float, text: String, wc: Array, night: bool) -> void:
+	var f := frame_at(s)
+	var hb := Basis(Vector3.UP, heading_at(s))
+	var span := half_corridor + WALL_T + 1.0
+	var road_y := f.origin.y
+	for sgn: float in [-1.0, 1.0]:
+		var foot := f.origin + hb.x * sgn * span
+		var by := minf(_base_y(foot), road_y)
+		var h := road_y + 9.0 - by
+		var n := int(ceil(h / 1.5))
+		for k in n:
+			var c: Color = wc[k % wc.size()]
+			var key := LegoMesh.glow(c) if is_space else LegoMesh.key(c)
+			lm.box(key, Transform3D(hb, Vector3(foot.x, by + 0.75 + k * 1.5, foot.z)), Vector3(1.4, 1.5, 1.4))
+		# balloons on top
+		var top := Vector3(foot.x, road_y + 9.8, foot.z)
+		var bcols := [Color("#c91a09"), Color("#0055bf"), Color("#f2cd37"), Color("#237841"), Color("#ff79c6")]
+		for k in 3:
+			var o := hb * Vector3(sgn * (0.4 + 0.6 * k), 1.6 + 0.9 * k, (k - 1) * 0.9)
+			var bk := LegoMesh.glow(bcols[(k + int(s)) % 5]) if night else LegoMesh.key(bcols[(k + int(s)) % 5])
+			_bar(lm, LegoMesh.key(Color("#f4f4f4")), top, top + o - Vector3.UP * 0.8, 0.06)
+			_ball(lm, bk, top + o, 0.75, 4, 10)
+	var beam_c := Color("#1b2a34")
+	lm.box(LegoMesh.key(beam_c), Transform3D(hb, f.origin + Vector3.UP * 8.4), Vector3(span * 2 + 1.4, 1.8, 0.8), true, 0.7)
+	for side: float in [1.0, -1.0]:
+		var lbl := Label3D.new()
+		lbl.text = text
+		lbl.font_size = 150
+		lbl.pixel_size = 0.01
+		lbl.outline_size = 26
+		lbl.modulate = Color("#ffe23b") if not is_space else Color("#9bf0ff")
+		lbl.outline_modulate = Color("#1b2a34")
+		lbl.double_sided = false
+		lbl.transform = Transform3D(hb * Basis(Vector3.UP, 0.0 if side > 0 else PI), f.origin + Vector3.UP * 8.4 + hb.z * 0.42 * side)
+		add_child(lbl)

@@ -17,6 +17,29 @@ var _map: Minimap
 var _tag: Label
 var _last_place := 0
 
+# coach: short "how to play" tips shown while racing, using this player's real buttons
+var _tip: PanelContainer
+var _tip_lbl: Label
+var _tip_t := 0.0
+var _tip_cd := 0.0
+var _shown := {}  # tip id -> times shown
+var _tips_on := true
+var _item_seen := ""
+var _item_held := 0.0
+var _offroad_t := 0.0
+var _turn_t := 0.0
+var _ever_drifted := false
+var _race_t := 0.0
+var _got_item := false
+
+const ITEM_TIPS := {
+	"turbo": "You got a TURBO! Press %s for a speed boost!",
+	"triple": "TRIPLE TURBO! Press %s three times to zoom!",
+	"missile": "BRICK MISSILE! Press %s to fire it at the racer in front!",
+	"oil": "OIL SLICK! Press %s to drop it behind you!",
+	"shield": "SHIELD! Press %s to protect yourself from hits!",
+}
+
 
 func setup(r: Node, k: Kart, is_compact: bool) -> void:
 	race = r
@@ -61,6 +84,26 @@ func _ready() -> void:
 	var ms := 210.0 * sc
 	UI.pin(_map, 0, 1, 14, -ms - 14, ms, ms)
 	add_child(_map)
+	_tips_on = kart.is_human and bool(Save.setting("tips", true))
+	_tip = PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.1, 0.2, 0.82)
+	sb.border_color = UI.YELLOW
+	sb.set_border_width_all(3)
+	sb.set_corner_radius_all(16)
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	_tip.add_theme_stylebox_override("panel", sb)
+	_tip_lbl = UI.label("", int(24 * sc), Color.WHITE, int(6 * sc))
+	_tip_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_tip_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tip.add_child(_tip_lbl)
+	_tip.modulate.a = 0.0
+	_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	UI.pin(_tip, 0.5, 1, -330 * sc, -150 * sc, 660 * sc, 70 * sc)
+	add_child(_tip)
 	if kart.is_human and race.humans.size() > 1:
 		_tag = UI.label("P%d" % (kart.slot + 1), int(26 * sc), kart.color, int(8 * sc))
 		_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -108,6 +151,86 @@ func _process(dt: float) -> void:
 		_msg.modulate.a = 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.012)
 	else:
 		_msg.modulate.a = 0.0
+	_coach(dt)
+
+
+func _btn(action: String) -> String:
+	return "[%s]" % Controls.button_hint(kart.slot, action)
+
+
+## Shows a tip if it hasn't been shown `max_times` already. Returns true if it was shown.
+func tip(id: String, text: String, max_times := 1, dur := 4.0, force := false) -> bool:
+	if not _tips_on or kart.finished:
+		return false
+	if int(_shown.get(id, 0)) >= max_times or (_tip_cd > 0.0 and not force):
+		return false
+	_shown[id] = int(_shown.get(id, 0)) + 1
+	_tip_lbl.text = text
+	if OS.has_environment("PJ_DEBUG"):
+		print("TIP %s: %s" % [id, text])
+	_tip_t = dur
+	_tip_cd = dur + 3.0
+	_tip.pivot_offset = _tip.size * 0.5
+	_tip.scale = Vector2.ONE * 1.15
+	create_tween().tween_property(_tip, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK)
+	Sfx.play("click", 1.4, -8.0)
+	return true
+
+
+func _coach(dt: float) -> void:
+	_tip_t = maxf(_tip_t - dt, 0.0)
+	_tip_cd = maxf(_tip_cd - dt, 0.0)
+	_tip.modulate.a = move_toward(_tip.modulate.a, 1.0 if _tip_t > 0.0 else 0.0, dt * 4.0)
+	if not _tips_on or race.state != "race" or kart.finished:
+		return
+	_race_t += dt
+	# items: explain each new item the first couple of times, remind if it's not being used
+	if kart.item != "" and kart.item_roll <= 0.0:
+		_got_item = true
+		if kart.item != _item_seen:
+			_item_seen = kart.item
+			_item_held = 0.0
+			tip("item_" + kart.item, ITEM_TIPS.get(kart.item, "Press %s to use your item!") % _btn("item"), 2, 4.0, true)
+		_item_held += dt
+		if _item_held > 9.0:
+			_item_held = 0.0
+			tip("item_remind", "Don't forget your item! Press %s to use it." % _btn("item"), 3)
+	else:
+		_item_seen = ""
+		_item_held = 0.0
+	if not _got_item and _race_t > 5.0:
+		tip("boxes", "Drive through the rainbow ? bricks to get a surprise item!")
+	# drifting
+	if kart.drifting:
+		_ever_drifted = true
+		if kart.drift_level() >= 2:
+			tip("drift_release", "Sparks! Let go of %s now for a TURBO!" % _btn("drift"), 2, 2.5, true)
+	elif absf(kart.in_steer) > 0.6 and kart.speed > 14.0:
+		_turn_t += dt
+		if _turn_t > 1.2 and _race_t > 6.0:
+			_turn_t = 0.0
+			tip("drift", "Big turn? Hold %s while steering to DRIFT and get a boost!" % _btn("drift"), 1 if _ever_drifted else 2)
+	else:
+		_turn_t = maxf(_turn_t - dt, 0.0)
+	# ramps: tricks
+	if kart._ramp_launch and kart.air_time > 0.05 and not kart._trick:
+		tip("trick", "JUMP! Press %s in the air to do a trick!" % _btn("drift"), 2, 2.0, true)
+	# off the road
+	if kart.surface == "offroad" and not kart.is_monster:
+		_offroad_t += dt
+		if _offroad_t > 1.5:
+			tip("offroad", "Off the road! Steer back to the track to go faster.", 2)
+	else:
+		_offroad_t = 0.0
+	# hit by something
+	if kart.spin_timer > 0.0:
+		tip("hit", "Ouch! A SHIELD item keeps you safe from hits.", 1)
+	# falling behind
+	if kart.place >= race.karts.size() - 1 and _race_t > 25.0 and race.karts.size() > 3:
+		tip("behind", "Racers in the back get the best items. Keep going, you can catch up!", 1)
+	# without easy driving, remind about the gas pedal
+	if not kart.easy_drive and absf(kart.speed) < 3.0 and _race_t > 3.0:
+		tip("gas", "Hold %s to drive!" % _btn("accel"), 2)
 
 
 # ------------------------------------------------------------------ helpers

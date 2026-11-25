@@ -115,6 +115,34 @@ static func arrows() -> ImageTexture:
 	return t
 
 
+## Rainbow road: colored lanes across U with thin white seams and soft chevrons along V.
+static func rainbow() -> ImageTexture:
+	if _cache.has("rainbow"):
+		return _cache["rainbow"]
+	var cols := [Color("#ff3b6b"), Color("#ff9d2b"), Color("#ffe23b"), Color("#3bff7a"), Color("#3bc8ff"), Color("#6b6bff"), Color("#c45bff")]
+	var w := 140
+	var h := 64
+	var img := _img(w, h)
+	for y in h:
+		for x in w:
+			var band := x * cols.size() / w
+			var col: Color = cols[band]
+			var fx := float(x % (w / cols.size())) / (w / cols.size())
+			if fx < 0.06:
+				col = col.lerp(Color.WHITE, 0.7)
+			# chevrons pointing along the driving direction
+			var cx := absf(float(x) / w - 0.5)
+			var fy := fposmod(float(y) / h + cx * 0.8, 1.0)
+			if fy < 0.12:
+				col = col.lightened(0.35)
+			if x < 3 or x > w - 4:
+				col = Color.WHITE
+			img.set_pixel(x, y, col)
+	var t := _finish(img)
+	_cache["rainbow"] = t
+	return t
+
+
 ## Brick wall pattern for track skirts.
 static func bricks(c: Color) -> ImageTexture:
 	var k := "br" + c.to_html()

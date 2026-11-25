@@ -182,3 +182,25 @@ func device_of(e: InputEvent) -> String:
 	elif e is InputEventJoypadButton and e.pressed:
 		return "pad%d" % e.device
 	return ""
+
+
+const PAD_SHORT := {
+	JOY_BUTTON_A: "Cross ✕", JOY_BUTTON_B: "Circle ○", JOY_BUTTON_X: "Square ▢", JOY_BUTTON_Y: "Triangle △",
+	JOY_BUTTON_LEFT_SHOULDER: "L1", JOY_BUTTON_RIGHT_SHOULDER: "R1", JOY_BUTTON_BACK: "Select",
+	JOY_BUTTON_START: "Start", JOY_BUTTON_LEFT_STICK: "L3", JOY_BUTTON_RIGHT_STICK: "R3",
+}
+
+
+## Friendly name of the button(s) for an action on this player's device, e.g. "E or L1".
+func button_hint(slot: int, action: String) -> String:
+	var dev: String = slot_device[slot] if slot >= 0 and slot < MAX_PLAYERS else "any"
+	var keys := []
+	if dev == "any" or dev == "kb1":
+		keys.append(OS.get_keycode_string(KB1[action][0]))
+	if dev == "kb2":
+		keys.append(OS.get_keycode_string(KB2[action][0]))
+	if dev == "any" or dev.begins_with("pad"):
+		var m := pad_map()
+		if m.has(action) and not m[action].is_empty():
+			keys.append(PAD_SHORT.get(int(m[action][0]), "button %d" % int(m[action][0])))
+	return " or ".join(keys)

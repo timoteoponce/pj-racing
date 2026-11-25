@@ -318,7 +318,7 @@ func _physics_process(dt: float) -> void:
 		if _ramp_launch:
 			_ramp_launch = false
 	else:
-		velocity.y -= GRAVITY * dt
+		velocity.y -= GRAVITY * track.gravity_scale * dt
 	var pre_vy := velocity.y
 	move_and_slide()
 	_after_slide(dt, fwd, pre_vy, on_floor)

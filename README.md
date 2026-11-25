@@ -19,8 +19,10 @@ repo has no asset files.
 |---|---|
 | `./build.sh run` | Play the game |
 | `./build.sh editor` | Open the project in the Godot editor |
-| `./build.sh check` | Smoke test: every screen, CPU races on all 6 tracks, an arcade race and a full 2-player tournament |
+| `./build.sh check` | Smoke test: every screen, CPU races on all 7 tracks, an arcade race and a full 2-player tournament |
 | `./build.sh export` | Build a standalone Linux executable in `build/` (downloads export templates the first time) |
+| `./build.sh install` | Export the game and install it for your user (`~/.local`): app-menu entry, icon and a `pj-racing` command. No sudo needed |
+| `./build.sh uninstall` | Remove the user install (your save and garage are kept) |
 | `./build.sh pads` | List the connected game controllers |
 | `./build.sh reset-save` | Back up and reset your progress |
 | `./build.sh clean` | Remove caches and build output |
@@ -43,6 +45,11 @@ The main menu has just three big buttons:
   gives the car a silly name ("Turbo Taco", "Pickle Rocket"…).
 - **RACE WITH FRIENDS**: 2–4 players split-screen, cups of 3 or 6 races with points and a podium.
 
+**Help tips while racing**: a coach box pops up at the right moment with the player's own buttons:
+what an item does when you get it ("BRICK MISSILE! Press [E or L1] to fire it…"), a reminder if you
+forget to use it, how to drift in a big turn and when to let go for the turbo, tricks on jumps, getting
+back on the road, and more. Each tip shows only a few times. Turn them off in **Settings**.
+
 **Easy Driving** is on by default: the gas is automatic, the kart gently steers back toward the
 road, wall hits are softer, and a stuck kart is put back on the track after 2 seconds. Kids only
 need to steer, drift and use items. Turn it off in **Settings** for a real challenge. Settings also
@@ -63,6 +70,11 @@ buying parts and Power-Up upgrades.
 | Neon Nights | City at night | Tight corners, lots of boost pads |
 | Lava Foundry | Volcano | Raised roads over lava (falling in respawns you) |
 | Monster Mud Pit | Mud | Wide, bumpy, 4 big ramps; monster trucks shine here |
+| Starlight Skyway | Outer space | Glowing rainbow road floating among planets, rockets and UFOs, with an overpass and low gravity for floaty jumps |
+
+Every track also has corner arrow signs, banner arches with balloons, flags on the walls and its own
+scenery (houses and windmills, tents, igloos, billboards, barrels…). Cups: Stud Cup, Turbo Cup,
+Star Cup (ends in space) and the 6-race Grand Brick Prix.
 
 ## Controls
 

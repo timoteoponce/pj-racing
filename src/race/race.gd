@@ -123,7 +123,11 @@ func _build_views() -> void:
 		hint.theme = UI.theme()
 		hint.name = "ControlsHint"
 		UI.pin(hint, 0.5, 1, -430, -70 if humans.size() == 1 else -50, 860, 60)
-		var hl := UI.label(("GAS IS AUTOMATIC!   " if easy else "GAS: W / Up / Cross   ") + "STEER: arrows, A/D or stick   •   DRIFT: Space / R1   •   ITEM: E / L1", 18, Color.WHITE, 5)
+		var txt := ("GAS IS AUTOMATIC!   " if easy else "GAS: W / Up / Cross   ") + "STEER: arrows, A/D or stick   •   DRIFT: Space / R1   •   ITEM: E / L1"
+		if humans.size() == 1:
+			var sl: int = humans[0].slot
+			txt = ("GAS IS AUTOMATIC!" if easy else "GAS: " + Controls.button_hint(sl, "accel")) + "   •   DRIFT: " + Controls.button_hint(sl, "drift") + "   •   ITEM: " + Controls.button_hint(sl, "item")
+		var hl := UI.label(txt, 18, Color.WHITE, 5)
 		hl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		hint.add_child(hl)
 		_ui.add_child(hint)
